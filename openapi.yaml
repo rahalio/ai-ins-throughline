@@ -1,0 +1,1506 @@
+openapi: 3.0.3
+info:
+  title: Throughline
+  version: 0.1.0
+  description: >-
+    Operating-cost control plane for Irish-domiciled carriers serving multiple EU
+    markets. Admits every inbound work item through one intake, classifies and
+    clusters it, routes it across legacy straight-through paths, cognitive
+    services, robotic steps, and human queues under per-market conduct clearance,
+    and meters each touch into attributable expense and expense-ratio movement.
+  x-product-slug: ai-ins-throughline
+  x-source: ai-in-insurance/deloitte-IE_Insurance Whitepaper_0318/
+servers:
+  - url: https://api.example.com
+tags:
+  - name: Intake
+    description: Unified admission of inbound work items across all channels
+  - name: Classification
+    description: Content analysis and work type clustering
+  - name: Routing
+    description: Route selection, dispatch, conduct clocks, and capacity
+  - name: Clearance
+    description: Per-member-state clearance of automated steps
+  - name: Metering
+    description: Cost metering, expense attribution, and payback reporting
+  - name: Settlement
+    description: Calculated versus released pay-outs under authority limits
+  - name: Assurance
+    description: Rework guardrails, route suspension, and automation register
+paths:
+  /v1/work-items:
+    get:
+      operationId: listWorkItems
+      tags: [Intake]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [admitted, classified, routed, in_progress, awaiting_human, disposed, suspended]
+        - name: clockState
+          in: query
+          schema:
+            type: string
+            enum: [within_target, warning, breached]
+      responses:
+        "200":
+          description: Work items page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeWorkItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: admitWorkItem
+      tags: [Intake]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkItemAdmission"
+      responses:
+        "201":
+          description: Item admitted with identity, governing policy, and member state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeWorkItem"
+        "422":
+          description: >-
+            Rejected when the governing policy and therefore the member state
+            cannot be resolved, since the conduct clock cannot be set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/work-items/{workItemId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      operationId: getWorkItem
+      tags: [Intake]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Work item with clock, route, and disposal state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeWorkItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/work-items/{workItemId}/route-history:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      operationId: getWorkItemRouteHistory
+      tags: [Routing]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Every step, executor, and automated decision for this item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeRouteHistory"
+  /v1/work-items/{workItemId}/classification:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    post:
+      operationId: classifyWorkItem
+      tags: [Classification]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClassificationSubmission"
+      responses:
+        "200":
+          description: Classification and cluster assigned with confidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeClassificationResult"
+  /v1/work-types:
+    get:
+      operationId: listWorkTypes
+      tags: [Classification]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: lineOfBusiness
+          in: query
+          schema:
+            type: string
+            enum: [motor, property, health, liability, travel, commercial]
+      responses:
+        "200":
+          description: Work types with cost and clock defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeWorkType"
+    post:
+      operationId: defineWorkType
+      tags: [Classification]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkTypeCreate"
+      responses:
+        "201":
+          description: Work type defined
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeWorkType"
+  /v1/work-items/{workItemId}/routing:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    post:
+      operationId: routeWorkItem
+      tags: [Routing]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Route selected with executor chain and governing constraints
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeRoute"
+        "409":
+          description: >-
+            Routing blocked. Raised when no automated step is cleared for this
+            member state and no human queue has capacity in the required language
+            before the conduct clock target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/routing/clock-escalations:
+    get:
+      operationId: listClockEscalations
+      tags: [Routing]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+      responses:
+        "200":
+          description: Items warned or breached against statutory clocks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeConductClock"
+  /v1/routing/capacity:
+    get:
+      operationId: getCapacityProfile
+      tags: [Routing]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: language
+          in: query
+          schema:
+            type: string
+            example: de
+        - name: skill
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Human queue capacity by language and skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeCapacityProfile"
+  /v1/clearances:
+    get:
+      operationId: listMarketClearances
+      tags: [Clearance]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [not_requested, requested, granted, withheld, withdrawn]
+      responses:
+        "200":
+          description: Clearance state per automated step per member state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeMarketClearance"
+    post:
+      operationId: grantMarketClearance
+      tags: [Clearance]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketClearanceCreate"
+      responses:
+        "201":
+          description: Clearance granted by a named host-market conduct officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeMarketClearance"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /v1/clearances/{clearanceId}/withdrawal:
+    parameters:
+      - $ref: "#/components/parameters/ClearanceId"
+    post:
+      operationId: withdrawMarketClearance
+      tags: [Clearance]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [officerId, reason]
+              properties:
+                officerId:
+                  type: string
+                reason:
+                  type: string
+                  enum:
+                    - local_conduct_change
+                    - differential_pricing_risk
+                    - quality_deterioration
+                    - complaint_pattern
+                    - supervisory_direction
+                narrative:
+                  type: string
+      responses:
+        "202":
+          description: Clearance withdrawn, affected routes revert to human handling
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeMarketClearance"
+  /v1/metering/touches:
+    post:
+      operationId: recordMeteredTouch
+      tags: [Metering]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeteredTouchCreate"
+      responses:
+        "201":
+          description: Touch metered with executor, duration, cost, and attribution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeMeteredTouch"
+  /v1/metering/unit-cost:
+    get:
+      operationId: getUnitCostReport
+      tags: [Metering]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: workTypeId
+          in: query
+          schema:
+            type: string
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+        - name: period
+          in: query
+          schema:
+            type: string
+            example: 2026-06
+      responses:
+        "200":
+          description: Cost per work item by type, route, and market
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeUnitCostReport"
+  /v1/metering/expense-ratio-movement:
+    get:
+      operationId: getExpenseRatioMovement
+      tags: [Metering]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: lineOfBusiness
+          in: query
+          schema:
+            type: string
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+        - name: period
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Basis points removed net of automation run cost
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeExpenseRatioMovement"
+  /v1/metering/payback-statements:
+    get:
+      operationId: listPaybackStatements
+      tags: [Metering]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [on_track, behind, achieved, failed]
+      responses:
+        "200":
+          description: Booked benefit against stated payback per automation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopePaybackStatement"
+  /v1/settlement/authorisations:
+    post:
+      operationId: requestSettlementAuthorisation
+      tags: [Settlement]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettlementAuthorisationCreate"
+      responses:
+        "201":
+          description: Calculated pay-out queued for human approval and release
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeSettlementAuthorisation"
+        "422":
+          description: >-
+            Rejected when the calculated amount exceeds every available authority
+            limit or the calculation cannot be reconciled to policy conditions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/settlement/authorisations/{authorisationId}/release:
+    parameters:
+      - $ref: "#/components/parameters/AuthorisationId"
+    post:
+      operationId: releaseSettlement
+      tags: [Settlement]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approverId, releasedAmount]
+              properties:
+                approverId:
+                  type: string
+                releasedAmount:
+                  $ref: "#/components/schemas/Money"
+                adjustmentReason:
+                  type: string
+      responses:
+        "200":
+          description: Pay-out released by named approver within authority limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeSettlementAuthorisation"
+  /v1/assurance/guardrails:
+    get:
+      operationId: listRouteGuardrails
+      tags: [Assurance]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [healthy, breached, suspended, remediated]
+      responses:
+        "200":
+          description: Rework, complaint, fraud referral, and answer quality metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeRouteGuardrail"
+  /v1/assurance/routes/{routeStepId}/suspension:
+    parameters:
+      - $ref: "#/components/parameters/RouteStepId"
+    post:
+      operationId: suspendRouteStep
+      tags: [Assurance]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - rework_rate_breach
+                    - complaint_rate_breach
+                    - fraud_referral_decline
+                    - answer_quality_decline
+                    - clearance_withdrawn
+                memberState:
+                  $ref: "#/components/schemas/MemberState"
+      responses:
+        "202":
+          description: Step suspended for the given market, work reverts to humans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeRouteGuardrail"
+  /v1/assurance/automation-register:
+    get:
+      operationId: getAutomationRegister
+      tags: [Assurance]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Registered automated steps with owners and failure behaviour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeAutomationRegistryEntry"
+    post:
+      operationId: registerAutomatedStep
+      tags: [Assurance]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationRegistryEntryCreate"
+      responses:
+        "201":
+          description: Automated step registered with owner and payback target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeAutomationRegistryEntry"
+  /v1/assurance/pricing-blindness-attestation:
+    get:
+      operationId: getPricingBlindnessAttestation
+      tags: [Assurance]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: memberState
+          in: query
+          schema:
+            $ref: "#/components/schemas/MemberState"
+        - name: period
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: >-
+            Evidence that renewal and retention routes consumed no inferred
+            price-sensitivity signals, for differential pricing review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopePricingBlindnessAttestation"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    WorkItemId:
+      name: workItemId
+      in: path
+      required: true
+      schema:
+        type: string
+    ClearanceId:
+      name: clearanceId
+      in: path
+      required: true
+      schema:
+        type: string
+    AuthorisationId:
+      name: authorisationId
+      in: path
+      required: true
+      schema:
+        type: string
+    RouteStepId:
+      name: routeStepId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnprocessableEntity:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    ResponseMeta:
+      type: object
+      required: [requestId, timestamp]
+      properties:
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+          example: EUR
+    MemberState:
+      type: string
+      description: ISO country code of the member state the policy was written in
+      enum: [IE, DE, FR, ES, IT, NL, BE, PT, PL, AT]
+    ExecutorKind:
+      type: string
+      enum: [legacy_straight_through, cognitive_service, robotic_step, human_queue]
+    WorkItem:
+      type: object
+      required: [id, intakeChannel, memberState, status]
+      properties:
+        id:
+          type: string
+        intakeChannel:
+          type: string
+          enum: [post_scan, email, portal, broker_submission, telephony, partner_file]
+        policyReference:
+          type: string
+        claimReference:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        lineOfBusiness:
+          type: string
+          enum: [motor, property, health, liability, travel, commercial]
+        workTypeId:
+          type: string
+        language:
+          type: string
+          example: es
+        status:
+          type: string
+          enum: [admitted, classified, routed, in_progress, awaiting_human, disposed, suspended]
+        vulnerabilityFlag:
+          type: boolean
+        admittedAt:
+          type: string
+          format: date-time
+        disposedAt:
+          type: string
+          format: date-time
+        conductClock:
+          $ref: "#/components/schemas/ConductClock"
+        totalCost:
+          $ref: "#/components/schemas/Money"
+    WorkItemAdmission:
+      type: object
+      required: [intakeChannel]
+      properties:
+        intakeChannel:
+          type: string
+          enum: [post_scan, email, portal, broker_submission, telephony, partner_file]
+        policyReference:
+          type: string
+        claimReference:
+          type: string
+        language:
+          type: string
+        artefactUri:
+          type: string
+          description: Pointer to the captured artefact held in the controller boundary
+        vulnerabilityFlag:
+          type: boolean
+        receivedAt:
+          type: string
+          format: date-time
+    WorkType:
+      type: object
+      required: [id, name, lineOfBusiness]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Escape of water first notification
+        lineOfBusiness:
+          type: string
+        targetUnitCost:
+          $ref: "#/components/schemas/Money"
+        clockTargetHoursByMarket:
+          type: object
+          additionalProperties:
+            type: integer
+        attributableToContracts:
+          type: boolean
+          description: IFRS 17 default classification for touches on this work type
+        humanMandatory:
+          type: boolean
+    WorkTypeCreate:
+      type: object
+      required: [name, lineOfBusiness]
+      properties:
+        name:
+          type: string
+        lineOfBusiness:
+          type: string
+        targetUnitCost:
+          $ref: "#/components/schemas/Money"
+        clockTargetHoursByMarket:
+          type: object
+          additionalProperties:
+            type: integer
+        attributableToContracts:
+          type: boolean
+        humanMandatory:
+          type: boolean
+    ClassificationSubmission:
+      type: object
+      required: [workTypeId, confidence]
+      properties:
+        workTypeId:
+          type: string
+        clusterId:
+          type: string
+        confidence:
+          type: number
+          format: float
+        extractedFields:
+          type: object
+          additionalProperties:
+            type: string
+        detectedLanguage:
+          type: string
+        serviceId:
+          type: string
+    ClassificationResult:
+      type: object
+      required: [workItemId, workTypeId, confidence]
+      properties:
+        workItemId:
+          type: string
+        workTypeId:
+          type: string
+        clusterId:
+          type: string
+        confidence:
+          type: number
+          format: float
+        requiresHumanConfirmation:
+          type: boolean
+        detectedLanguage:
+          type: string
+        classifiedAt:
+          type: string
+          format: date-time
+    ConductClock:
+      type: object
+      required: [workItemId, memberState, state]
+      properties:
+        workItemId:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        obligation:
+          type: string
+          enum:
+            - acknowledgement
+            - decision_on_cover
+            - settlement_offer
+            - complaint_response
+            - information_request
+        targetAt:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum: [within_target, warning, breached]
+        escalatedTo:
+          type: string
+        escalatedAt:
+          type: string
+          format: date-time
+    Route:
+      type: object
+      required: [workItemId, steps]
+      properties:
+        workItemId:
+          type: string
+        selectedAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteStep"
+        constraintsApplied:
+          type: array
+          items:
+            type: string
+          example: [clearance_granted_ES, capacity_available_es, clock_within_target]
+    RouteStep:
+      type: object
+      required: [id, sequence, executorKind]
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+        executorKind:
+          $ref: "#/components/schemas/ExecutorKind"
+        executorId:
+          type: string
+        stepName:
+          type: string
+          example: Policy condition check
+        status:
+          type: string
+          enum: [pending, executing, completed, failed, skipped, suspended]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+    RouteHistory:
+      type: object
+      properties:
+        workItemId:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteStep"
+        automatedDecisions:
+          type: array
+          items:
+            type: object
+            properties:
+              routeStepId:
+                type: string
+              decision:
+                type: string
+              clearanceId:
+                type: string
+              policyVersion:
+                type: integer
+              decidedAt:
+                type: string
+                format: date-time
+        humanTouches:
+          type: array
+          items:
+            type: object
+            properties:
+              routeStepId:
+                type: string
+              userId:
+                type: string
+              queue:
+                type: string
+    CapacityProfile:
+      type: object
+      properties:
+        language:
+          type: string
+        skill:
+          type: string
+        availableHours:
+          type: number
+          format: float
+        committedHours:
+          type: number
+          format: float
+        queueDepth:
+          type: integer
+        canAbsorbSuspension:
+          type: boolean
+          description: Whether humans could absorb this route if it were suspended
+    MarketClearance:
+      type: object
+      required: [id, automationRegistryEntryId, memberState, state]
+      properties:
+        id:
+          type: string
+        automationRegistryEntryId:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        state:
+          type: string
+          enum: [not_requested, requested, granted, withheld, withdrawn]
+        officerId:
+          type: string
+        evidenceReference:
+          type: string
+        conditions:
+          type: array
+          items:
+            type: string
+        grantedAt:
+          type: string
+          format: date-time
+        withdrawnAt:
+          type: string
+          format: date-time
+        withdrawalReason:
+          type: string
+    MarketClearanceCreate:
+      type: object
+      required: [automationRegistryEntryId, memberState, officerId]
+      properties:
+        automationRegistryEntryId:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        officerId:
+          type: string
+        evidenceReference:
+          type: string
+        conditions:
+          type: array
+          items:
+            type: string
+    MeteredTouch:
+      type: object
+      required: [id, workItemId, executorKind]
+      properties:
+        id:
+          type: string
+        workItemId:
+          type: string
+        routeStepId:
+          type: string
+        executorKind:
+          $ref: "#/components/schemas/ExecutorKind"
+        executorId:
+          type: string
+        durationSeconds:
+          type: integer
+        unitCost:
+          $ref: "#/components/schemas/Money"
+        expenseAttribution:
+          $ref: "#/components/schemas/ExpenseAttribution"
+        occurredAt:
+          type: string
+          format: date-time
+    MeteredTouchCreate:
+      type: object
+      required: [workItemId, executorKind, durationSeconds]
+      properties:
+        workItemId:
+          type: string
+        routeStepId:
+          type: string
+        executorKind:
+          $ref: "#/components/schemas/ExecutorKind"
+        executorId:
+          type: string
+        durationSeconds:
+          type: integer
+        unitCost:
+          $ref: "#/components/schemas/Money"
+        occurredAt:
+          type: string
+          format: date-time
+    ExpenseAttribution:
+      type: object
+      required: [attributableToContracts]
+      properties:
+        attributableToContracts:
+          type: boolean
+        costCentre:
+          type: string
+        ledgerAccount:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        lineOfBusiness:
+          type: string
+        disputed:
+          type: boolean
+    UnitCostReport:
+      type: object
+      properties:
+        workTypeId:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        period:
+          type: string
+        itemCount:
+          type: integer
+        meanCostPerItem:
+          $ref: "#/components/schemas/Money"
+        costByExecutorKind:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Money"
+        reworkAdjustedStraightThroughRate:
+          type: number
+          format: float
+        targetUnitCost:
+          $ref: "#/components/schemas/Money"
+    ExpenseRatioMovement:
+      type: object
+      properties:
+        lineOfBusiness:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        period:
+          type: string
+        basisPointsRemoved:
+          type: number
+          format: float
+        grossSavings:
+          $ref: "#/components/schemas/Money"
+        automationRunCost:
+          $ref: "#/components/schemas/Money"
+        netSavings:
+          $ref: "#/components/schemas/Money"
+        releasedCapacityDisposition:
+          type: string
+          enum: [cost_removed, absorbed_by_growth, redeployed, unassigned]
+        reconciledToLedger:
+          type: boolean
+    PaybackStatement:
+      type: object
+      required: [automationRegistryEntryId, status]
+      properties:
+        automationRegistryEntryId:
+          type: string
+        statedPaybackMonths:
+          type: integer
+        monthsElapsed:
+          type: integer
+        investmentToDate:
+          $ref: "#/components/schemas/Money"
+        bookedBenefitToDate:
+          $ref: "#/components/schemas/Money"
+        status:
+          type: string
+          enum: [on_track, behind, achieved, failed]
+        signedOffBy:
+          type: string
+    SettlementAuthorisation:
+      type: object
+      required: [id, workItemId, calculatedAmount, status]
+      properties:
+        id:
+          type: string
+        workItemId:
+          type: string
+        claimReference:
+          type: string
+        calculatedAmount:
+          $ref: "#/components/schemas/Money"
+        calculationBasis:
+          type: array
+          description: Policy conditions and clauses the calculation relied on
+          items:
+            type: string
+        authorityLimit:
+          $ref: "#/components/schemas/Money"
+        status:
+          type: string
+          enum: [awaiting_approval, released, adjusted, rejected, expired]
+        approverId:
+          type: string
+        releasedAmount:
+          $ref: "#/components/schemas/Money"
+        adjustmentReason:
+          type: string
+        releasedAt:
+          type: string
+          format: date-time
+    SettlementAuthorisationCreate:
+      type: object
+      required: [workItemId, calculatedAmount]
+      properties:
+        workItemId:
+          type: string
+        claimReference:
+          type: string
+        calculatedAmount:
+          $ref: "#/components/schemas/Money"
+        calculationBasis:
+          type: array
+          items:
+            type: string
+        specialClausesChecked:
+          type: array
+          items:
+            type: string
+    RouteGuardrail:
+      type: object
+      required: [id, routeStepId, metric, status]
+      properties:
+        id:
+          type: string
+        routeStepId:
+          type: string
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        metric:
+          type: string
+          enum:
+            - rework_rate
+            - reopen_rate
+            - complaint_rate
+            - fraud_referral_rate
+            - answer_quality_rate
+            - escalation_rate
+        threshold:
+          type: number
+          format: float
+        observedValue:
+          type: number
+          format: float
+        humanBaseline:
+          type: number
+          format: float
+        status:
+          type: string
+          enum: [healthy, breached, suspended, remediated]
+        breachedAt:
+          type: string
+          format: date-time
+    AutomationRegistryEntry:
+      type: object
+      required: [id, stepName, executorKind, ownerId]
+      properties:
+        id:
+          type: string
+        stepName:
+          type: string
+        executorKind:
+          $ref: "#/components/schemas/ExecutorKind"
+        executorId:
+          type: string
+        ownerId:
+          type: string
+        insertsIntoLegacyPath:
+          type: boolean
+          description: True where the step augments existing partial automation
+        failureBehaviour:
+          type: string
+          enum: [fail_closed_to_human, retry_then_human, fail_open]
+        statedPaybackMonths:
+          type: integer
+        clearedMemberStates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberState"
+        touchesRenewalPricing:
+          type: boolean
+        registeredAt:
+          type: string
+          format: date-time
+    AutomationRegistryEntryCreate:
+      type: object
+      required: [stepName, executorKind, ownerId, failureBehaviour]
+      properties:
+        stepName:
+          type: string
+        executorKind:
+          $ref: "#/components/schemas/ExecutorKind"
+        executorId:
+          type: string
+        ownerId:
+          type: string
+        insertsIntoLegacyPath:
+          type: boolean
+        failureBehaviour:
+          type: string
+          enum: [fail_closed_to_human, retry_then_human, fail_open]
+        statedPaybackMonths:
+          type: integer
+        touchesRenewalPricing:
+          type: boolean
+    PricingBlindnessAttestation:
+      type: object
+      properties:
+        memberState:
+          $ref: "#/components/schemas/MemberState"
+        period:
+          type: string
+        renewalRoutesReviewed:
+          type: integer
+        prohibitedSignalsDetected:
+          type: integer
+        prohibitedSignals:
+          type: array
+          items:
+            type: string
+          example: [inferred_price_sensitivity, prior_year_shopping_behaviour, renewal_elasticity_score]
+        attestedBy:
+          type: string
+        attestedAt:
+          type: string
+          format: date-time
+    DataEnvelopeWorkItem:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/WorkItem"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeWorkType:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/WorkType"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeClassificationResult:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ClassificationResult"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeRoute:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/Route"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeRouteHistory:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/RouteHistory"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeCapacityProfile:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/CapacityProfile"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeMarketClearance:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/MarketClearance"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeMeteredTouch:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/MeteredTouch"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeUnitCostReport:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/UnitCostReport"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeExpenseRatioMovement:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ExpenseRatioMovement"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeSettlementAuthorisation:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/SettlementAuthorisation"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeRouteGuardrail:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/RouteGuardrail"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeAutomationRegistryEntry:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/AutomationRegistryEntry"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopePricingBlindnessAttestation:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/PricingBlindnessAttestation"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeWorkItem:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkItem"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeWorkType:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkType"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeConductClock:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConductClock"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeMarketClearance:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/MarketClearance"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopePaybackStatement:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PaybackStatement"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeRouteGuardrail:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/RouteGuardrail"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeAutomationRegistryEntry:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/AutomationRegistryEntry"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
